@@ -14,6 +14,7 @@ NVIDIA CUDA specific speedups adopted from NVIDIA Apex examples
 
 Hacked together by / Copyright 2020 Ross Wightman (https://github.com/rwightman)
 """
+import wandb
 import argparse
 import time
 import yaml
@@ -36,6 +37,8 @@ from timm.optim import create_optimizer
 from timm.scheduler import create_scheduler
 from timm.utils import ApexScaler, NativeScaler
 
+import mmcv
+
 try:
     from apex import amp
     from apex.parallel import DistributedDataParallel as ApexDDP
@@ -56,7 +59,8 @@ _logger = logging.getLogger('train')
 
 # The first arg parser parses out only the --config argument, this argument is used to
 # load a yaml file containing key-values that override the defaults for the main parser below
-config_parser = parser = argparse.ArgumentParser(description='Training Config', add_help=False)
+config_parser = parser = argparse.ArgumentParser(
+    description='Training Config', add_help=False)
 parser.add_argument('-c', '--config', default='', type=str, metavar='FILE',
                     help='YAML config file specifying default arguments')
 
@@ -64,14 +68,14 @@ parser.add_argument('-c', '--config', default='', type=str, metavar='FILE',
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
 # Dataset / Model parameters
-parser.add_argument('data_dir', metavar='DIR',
-                    help='path to dataset')
-parser.add_argument('--dataset', '-d', metavar='NAME', default='',
-                    help='dataset type (default: ImageFolder/ImageTar if empty)')
-parser.add_argument('--train-split', metavar='NAME', default='train',
-                    help='dataset train split (default: train)')
-parser.add_argument('--val-split', metavar='NAME', default='validation',
-                    help='dataset validation split (default: validation)')
+# parser.add_argument('data_dir', metavar='DIR',
+#                     help='path to dataset')
+# parser.add_argument('--dataset', '-d', metavar='NAME', default='',
+#                     help='dataset type (default: ImageFolder/ImageTar if empty)')
+# parser.add_argument('--train-split', metavar='NAME', default='train',
+#                     help='dataset train split (default: train)')
+# parser.add_argument('--val-split', metavar='NAME', default='validation',
+#                     help='dataset validation split (default: validation)')
 parser.add_argument('--model', default='resnet101', type=str, metavar='MODEL',
                     help='Name of model to train (default: "countception"')
 parser.add_argument('--pretrained', action='store_true', default=False,
@@ -116,7 +120,6 @@ parser.add_argument('--weight-decay', type=float, default=0.0001,
                     help='weight decay (default: 0.0001)')
 parser.add_argument('--clip-grad', type=float, default=None, metavar='NORM',
                     help='Clip gradient norm (default: None, no clipping)')
-
 
 
 # Learning rate schedule parameters
@@ -274,10 +277,19 @@ def _parse_args():
         with open(args_config.config, 'r') as f:
             cfg = yaml.safe_load(f)
             parser.set_defaults(**cfg)
-
     # The main arg parser parses the rest of the args, the usual
     # defaults will have been overridden if config file specified.
     args = parser.parse_args(remaining)
+    # export config file
+    # from mmcv import Config
+    # config = Config(args)
+    # Config.filename = 'config.py'
+    # config.dump('config.py')
+
+    wandb.init(
+        project='pytorch-class-model',
+        config=args,
+    )
 
     # Cache the args as a text string to save them in the output dir later
     args_text = yaml.safe_dump(args.__dict__, default_flow_style=False)
@@ -298,7 +310,8 @@ def main():
     if args.distributed:
         args.device = 'cuda:%d' % args.local_rank
         torch.cuda.set_device(args.local_rank)
-        torch.distributed.init_process_group(backend='nccl', init_method='env://')
+        torch.distributed.init_process_group(
+            backend='nccl', init_method='env://')
         args.world_size = torch.distributed.get_world_size()
         args.rank = torch.distributed.get_rank()
         _logger.info('Training in distributed mode with multiple processes, 1 GPU per process. Process %d, total %d.'
@@ -340,14 +353,17 @@ def main():
         scriptable=args.torchscript,
         checkpoint_path=args.initial_checkpoint)
     if args.num_classes is None:
-        assert hasattr(model, 'num_classes'), 'Model must have `num_classes` attr if not set on cmd line/config.'
-        args.num_classes = model.num_classes  # FIXME handle model default vs config num_classes more elegantly
+        assert hasattr(
+            model, 'num_classes'), 'Model must have `num_classes` attr if not set on cmd line/config.'
+        # FIXME handle model default vs config num_classes more elegantly
+        args.num_classes = model.num_classes
 
     if args.local_rank == 0:
         _logger.info('Model %s created, param count: %d' %
                      (args.model, sum([m.numel() for m in model.parameters()])))
 
-    data_config = resolve_data_config(vars(args), model=model, verbose=args.local_rank == 0)
+    data_config = resolve_data_config(
+        vars(args), model=model, verbose=args.local_rank == 0)
 
     # setup augmentation batch splits for contrastive loss or split bn
     num_aug_splits = 0
@@ -397,7 +413,8 @@ def main():
         amp_autocast = torch.cuda.amp.autocast
         loss_scaler = NativeScaler()
         if args.local_rank == 0:
-            _logger.info('Using native Torch AMP. Training in mixed precision.')
+            _logger.info(
+                'Using native Torch AMP. Training in mixed precision.')
     else:
         if args.local_rank == 0:
             _logger.info('AMP not enabled. Training in float32.')
@@ -430,7 +447,8 @@ def main():
         else:
             if args.local_rank == 0:
                 _logger.info("Using native Torch DistributedDataParallel.")
-            model = NativeDDP(model, device_ids=[args.local_rank])  # can use device str in Torch >= 1.1
+            # can use device str in Torch >= 1.1
+            model = NativeDDP(model, device_ids=[args.local_rank])
         # NOTE: EMA model does not need to be wrapped by DDP
 
     # setup learning rate schedule and starting epoch
@@ -448,10 +466,12 @@ def main():
         _logger.info('Scheduled epochs: {}'.format(num_epochs))
 
     # create the train and eval datasets
-    dataset_train = create_dataset(
-        args.dataset, root=args.data_dir, split=args.train_split, is_training=True, batch_size=args.batch_size)
-    dataset_eval = create_dataset(
-        args.dataset, root=args.data_dir, split=args.val_split, is_training=False, batch_size=args.batch_size)
+    #     args.dataset, root=args.data_dir, split=args.train_split, is_training=True, batch_size=args.batch_size)
+    # dataset_eval = create_dataset(
+    #     args.dataset, root=args.data_dir, split=args.val_split, is_training=False, batch_size=args.batch_size)
+    from dataset_v2 import Cus_Dataset
+    dataset_train = Cus_Dataset('train')
+    dataset_eval = Cus_Dataset('eval')
 
     # setup mixup / cutmix
     collate_fn = None
@@ -463,14 +483,16 @@ def main():
             prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
             label_smoothing=args.smoothing, num_classes=args.num_classes)
         if args.prefetcher:
-            assert not num_aug_splits  # collate conflict (need to support deinterleaving in collate mixup)
+            # collate conflict (need to support deinterleaving in collate mixup)
+            assert not num_aug_splits
             collate_fn = FastCollateMixup(**mixup_args)
         else:
             mixup_fn = Mixup(**mixup_args)
 
     # wrap dataset in AugMix helper
-    if num_aug_splits > 1:
-        dataset_train = AugMixDataset(dataset_train, num_splits=num_aug_splits)
+    # TODO: open after days
+    # if num_aug_splits > 1:
+    #     dataset_train = AugMixDataset(dataset_train, num_splits=num_aug_splits)
 
     # create data loaders w/ augmentation pipeiine
     train_interpolation = args.train_interpolation
@@ -522,12 +544,14 @@ def main():
     # setup loss function
     if args.jsd:
         assert num_aug_splits > 1  # JSD only valid with aug splits set
-        train_loss_fn = JsdCrossEntropy(num_splits=num_aug_splits, smoothing=args.smoothing).cuda()
+        train_loss_fn = JsdCrossEntropy(
+            num_splits=num_aug_splits, smoothing=args.smoothing).cuda()
     elif mixup_active:
         # smoothing is handled with mixup target transform
         train_loss_fn = SoftTargetCrossEntropy().cuda()
     elif args.smoothing:
-        train_loss_fn = LabelSmoothingCrossEntropy(smoothing=args.smoothing).cuda()
+        train_loss_fn = LabelSmoothingCrossEntropy(
+            smoothing=args.smoothing).cuda()
     else:
         train_loss_fn = nn.CrossEntropyLoss().cuda()
     validate_loss_fn = nn.CrossEntropyLoss().cuda()
@@ -565,14 +589,17 @@ def main():
 
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if args.local_rank == 0:
-                    _logger.info("Distributing BatchNorm running means and vars")
+                    _logger.info(
+                        "Distributing BatchNorm running means and vars")
                 distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
-            eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+            eval_metrics = validate(
+                model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
 
             if model_ema is not None and not args.model_ema_force_cpu:
                 if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
-                    distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
+                    distribute_bn(model_ema, args.world_size,
+                                  args.dist_bn == 'reduce')
                 ema_eval_metrics = validate(
                     model_ema.module, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
                 eval_metrics = ema_eval_metrics
@@ -582,18 +609,21 @@ def main():
                 lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
             update_summary(
-                epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
+                epoch, train_metrics, eval_metrics, os.path.join(
+                    output_dir, 'summary.csv'),
                 write_header=best_metric is None)
 
             if saver is not None:
                 # save proper checkpoint with eval metric
                 save_metric = eval_metrics[eval_metric]
-                best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
+                best_metric, best_epoch = saver.save_checkpoint(
+                    epoch, metric=save_metric)
 
     except KeyboardInterrupt:
         pass
     if best_metric is not None:
-        _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
+        _logger.info(
+            '*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
 
 
 def train_one_epoch(
@@ -607,7 +637,8 @@ def train_one_epoch(
         elif mixup_fn is not None:
             mixup_fn.mixup_enabled = False
 
-    second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
+    second_order = hasattr(
+        optimizer, 'is_second_order') and optimizer.is_second_order
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     losses_m = AverageMeter()
@@ -641,7 +672,8 @@ def train_one_epoch(
         else:
             loss.backward(create_graph=second_order)
             if args.clip_grad is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), args.clip_grad)
             optimizer.step()
 
         if model_ema is not None:
@@ -659,6 +691,12 @@ def train_one_epoch(
                 losses_m.update(reduced_loss.item(), input.size(0))
 
             if args.local_rank == 0:
+                wandb.log(
+                    dict(
+                        Loss=losses_m.val,
+                        LR=lr,
+                    )
+                )
                 _logger.info(
                     'Train: {} [{:>4d}/{} ({:>3.0f}%)]  '
                     'Loss: {loss.val:>9.6f} ({loss.avg:>6.4f})  '
@@ -671,15 +709,18 @@ def train_one_epoch(
                         100. * batch_idx / last_idx,
                         loss=losses_m,
                         batch_time=batch_time_m,
-                        rate=input.size(0) * args.world_size / batch_time_m.val,
-                        rate_avg=input.size(0) * args.world_size / batch_time_m.avg,
+                        rate=input.size(0) * args.world_size /
+                        batch_time_m.val,
+                        rate_avg=input.size(
+                            0) * args.world_size / batch_time_m.avg,
                         lr=lr,
                         data_time=data_time_m))
 
                 if args.save_images and output_dir:
                     torchvision.utils.save_image(
                         input,
-                        os.path.join(output_dir, 'train-batch-%d.jpg' % batch_idx),
+                        os.path.join(
+                            output_dir, 'train-batch-%d.jpg' % batch_idx),
                         padding=0,
                         normalize=True)
 
@@ -688,7 +729,8 @@ def train_one_epoch(
             saver.save_recovery(epoch, batch_idx=batch_idx)
 
         if lr_scheduler is not None:
-            lr_scheduler.step_update(num_updates=num_updates, metric=losses_m.avg)
+            lr_scheduler.step_update(
+                num_updates=num_updates, metric=losses_m.avg)
 
         end = time.time()
         # end for
@@ -726,7 +768,8 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
             # augmentation reduction
             reduce_factor = args.tta
             if reduce_factor > 1:
-                output = output.unfold(0, reduce_factor, reduce_factor).mean(dim=2)
+                output = output.unfold(
+                    0, reduce_factor, reduce_factor).mean(dim=2)
                 target = target[0:target.size(0):reduce_factor]
 
             loss = loss_fn(output, target)
@@ -758,8 +801,11 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
                         log_name, batch_idx, last_idx, batch_time=batch_time_m,
                         loss=losses_m, top1=top1_m, top5=top5_m))
 
-    metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
-
+    metrics = OrderedDict(
+        [('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
+    wandb.log(
+        metrics
+    )
     return metrics
 
 
