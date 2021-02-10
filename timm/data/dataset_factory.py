@@ -16,7 +16,7 @@ def _search_split(root, split):
     return root
 
 
-def create_dataset(name, root, split='validation', search_split=True, is_training=False, batch_size=None, **kwargs):
+def create_dataset(name=None, root=None, split='validation', search_split=True, is_training=False, batch_size=None, **kwargs):
     name = name.lower()
     if name.startswith('tfds'):
         ds = IterableImageDataset(
