@@ -43,26 +43,27 @@ class Cus_Dataset(Dataset):
         else:
             self.label = open(val, 'r').readlines()
 
-        t, f = [], []
-        for index, l in enumerate(self.label):
-            filename, content = l.strip().split('\t')
-            if '卐' in content:
-                t.append(index)
-            else:
-                f.append(index)
+        # t, f = [], []
+        # for index, l in enumerate(self.label):
+        #     filename, content = l.strip().split('\t')
+        #     if '卐' in content:
+        #         t.append(index)
+        #     else:
+        #         f.append(index)
 
-        self.res = random.choices(t, k=100000) + random.choices(f, k=100000)
-        shuffle(self.res)
+        # self.res = random.choices(t, k=100000) + random.choices(f, k=100000)
+        # shuffle(self.res)
+        shuffle(self.label)
         self.transform = transform
         self.flag = flag
 
     def __len__(self) -> int:
         if self.flag == 'eval':
-            return len(self.res[:5000])
-        return len(self.res)
+            return len(self.label[:5000])
+        return len(self.label)
 
     def __getitem__(self, index: int):
-        index = self.res[index]
+        # index = self.res[index]
         l = self.label[index]
         filename, content = l.strip().split('\t')
         im = txn.get(filename.encode(), False)
