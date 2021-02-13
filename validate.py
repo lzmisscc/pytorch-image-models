@@ -23,6 +23,8 @@ from timm.models import create_model, apply_test_time_pool, load_checkpoint, is_
 from timm.data import create_dataset, create_loader, resolve_data_config, RealLabelsImagenet
 from timm.utils import accuracy, AverageMeter, natural_key, setup_default_logging, set_jit_legacy
 
+import ipdb
+
 has_apex = False
 try:
     from apex import amp
@@ -166,9 +168,11 @@ def validate(args):
 
     criterion = nn.CrossEntropyLoss().cuda()
 
-    dataset = create_dataset(
-        root=args.data, name=args.dataset, split=args.split,
-        load_bytes=args.tf_preprocessing, class_map=args.class_map)
+    # dataset = create_dataset(
+    #     root=args.data, name=args.dataset, split=args.split,
+    #     load_bytes=args.tf_preprocessing, class_map=args.class_map)
+    from dataset_v2 import Cus_Dataset_v3
+    dataset = Cus_Dataset_v3('predict')
 
     if args.valid_labels:
         with open(args.valid_labels, 'r') as f:
@@ -270,6 +274,14 @@ def validate(args):
 def main():
     setup_default_logging()
     args = parser.parse_args()
+    import anyconfig
+    from anyconfig import load
+    from addict import Dict
+
+    config = load("output/train/20210211-131939-resnet50-224/args.yaml")
+    args = Dict(vars(args))
+    args.update(config)
+
     model_cfgs = []
     model_names = []
     if os.path.isdir(args.checkpoint):
