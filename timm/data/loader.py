@@ -39,6 +39,11 @@ def fast_collate(batch):
         tensor = torch.zeros((batch_size, *batch[0][0].shape), dtype=torch.uint8)
         for i in range(batch_size):
             tensor[i] += torch.from_numpy(batch[i][0])
+        # add return filename 
+        # if len(batch[0]) != 2:
+        #     filenames = [b[2] for b in batch]
+        #     labels = [b[3] for b in batch]
+        #     return tensor, targets, filenames, labels
         return tensor, targets
     elif isinstance(batch[0][0], torch.Tensor):
         targets = torch.tensor([b[1] for b in batch], dtype=torch.int64)

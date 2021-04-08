@@ -141,7 +141,7 @@ class Cus_Dataset_v2(Dataset):
 class Cus_Dataset_v3(Dataset):
     def __init__(self, flag='train', transform=None) -> None:
         super().__init__()
-
+        self.filenames = []
         if flag == 'train':
             self.label = open(train, 'r').readlines()
         elif flag == 'val':
@@ -154,6 +154,7 @@ class Cus_Dataset_v3(Dataset):
             for i in self.label:
                 name, content = i.split('.png ')
                 res.append(f"{name}.png\t{content}")
+                self.filenames.append(name)
             self.label = res
 
         # t, f = [], []
@@ -170,7 +171,7 @@ class Cus_Dataset_v3(Dataset):
         self.flag = flag
         print(f"use Cus_Dataset_v3:{len(self)}")
     def __len__(self) -> int:
-        return len(self.label)
+        return len(self.label[:1000])
 
     def __getitem__(self, index: int):
         # index = self.res[index]

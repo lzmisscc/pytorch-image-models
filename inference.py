@@ -21,8 +21,8 @@ _logger = logging.getLogger('inference')
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Inference')
-parser.add_argument('data', metavar='DIR',
-                    help='path to dataset')
+# parser.add_argument('data', metavar='DIR',
+#                     help='path to dataset')
 parser.add_argument('--output_dir', metavar='DIR', default='./',
                     help='path to output files')
 parser.add_argument('--model', '-m', metavar='MODEL', default='dpn92',
@@ -81,9 +81,11 @@ def main():
         model = torch.nn.DataParallel(model, device_ids=list(range(args.num_gpu))).cuda()
     else:
         model = model.cuda()
-
+    from dataset_v2 import Cus_Dataset_v3
+    dataset = Cus_Dataset_v3('predict')
     loader = create_loader(
-        ImageDataset(args.data),
+        # ImageDataset(args.data),
+        dataset,
         input_size=config['input_size'],
         batch_size=args.batch_size,
         use_prefetcher=True,
@@ -117,7 +119,8 @@ def main():
     topk_ids = np.concatenate(topk_ids, axis=0).squeeze()
 
     with open(os.path.join(args.output_dir, './topk_ids.csv'), 'w') as out_file:
-        filenames = loader.dataset.filenames(basename=True)
+        # filenames = loader.dataset.filenames(basename=True)
+        filenames = loader.dataset.filenames
         for filename, label in zip(filenames, topk_ids):
             out_file.write('{0},{1},{2},{3},{4},{5}\n'.format(
                 filename, label[0], label[1], label[2], label[3], label[4]))

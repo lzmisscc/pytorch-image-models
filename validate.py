@@ -241,6 +241,15 @@ def validate(args):
             batch_time.update(time.time() - end)
             end = time.time()
 
+            # add output > txt
+            # _, pred = output.topk(5, 1, True, True)
+            # pred = pred.t()
+            # res = pred[0].cpu().numpy()
+            # target = target.cpu().numpy()
+            # for fileanme, gt, pred, label in zip(filenames, target, res, labels):
+            #     print(fileanme, gt, pred, pred == gt)
+
+            # for 
             if batch_idx % args.log_freq == 0:
                 _logger.info(
                     'Test: [{0:>4d}/{1}]  '

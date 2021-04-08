@@ -277,26 +277,26 @@ class SENet(nn.Module):
         self.drop_rate = drop_rate
         if input_3x3:
             layer0_modules = [
-                ('conv1', nn.Conv2d(in_chans, 64, 3, stride=2, padding=1, bias=False)),
+                ('conv1', nn.Conv2d(in_chans, 64, 3, stride=1, padding=1, bias=False)),
                 ('bn1', nn.BatchNorm2d(64)),
                 ('relu1', nn.ReLU(inplace=True)),
-                ('conv2', nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False)),
+                ('conv2', nn.Conv2d(64, 64, 3, stride=1, padding=0, bias=False)),
                 ('bn2', nn.BatchNorm2d(64)),
                 ('relu2', nn.ReLU(inplace=True)),
-                ('conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1, bias=False)),
+                ('conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=0, bias=False)),
                 ('bn3', nn.BatchNorm2d(inplanes)),
                 ('relu3', nn.ReLU(inplace=True)),
             ]
         else:
             layer0_modules = [
                 ('conv1', nn.Conv2d(
-                    in_chans, inplanes, kernel_size=7, stride=2, padding=3, bias=False)),
+                    in_chans, inplanes, kernel_size=7, stride=(2, 1), padding=(5, 3), bias=False)),
                 ('bn1', nn.BatchNorm2d(inplanes)),
                 ('relu1', nn.ReLU(inplace=True)),
             ]
         self.layer0 = nn.Sequential(OrderedDict(layer0_modules))
         # To preserve compatibility with Caffe weights `ceil_mode=True` is used instead of `padding=1`.
-        self.pool0 = nn.MaxPool2d(3, stride=2, ceil_mode=True)
+        self.pool0 = nn.MaxPool2d(3, stride=(2, 1), ceil_mode=True, padding=1)
         self.feature_info = [dict(num_chs=inplanes, reduction=2, module='layer0')]
         self.layer1 = self._make_layer(
             block,
@@ -305,7 +305,8 @@ class SENet(nn.Module):
             groups=groups,
             reduction=reduction,
             downsample_kernel_size=1,
-            downsample_padding=0
+            downsample_padding=0,
+            stride=(2, 1)
         )
         self.feature_info += [dict(num_chs=64 * block.expansion, reduction=4, module='layer1')]
         self.layer2 = self._make_layer(
@@ -323,7 +324,7 @@ class SENet(nn.Module):
             block,
             planes=256,
             blocks=layers[2],
-            stride=2,
+            stride=(2, 1),
             groups=groups,
             reduction=reduction,
             downsample_kernel_size=downsample_kernel_size,
@@ -348,7 +349,12 @@ class SENet(nn.Module):
         for m in self.modules():
             _weight_init(m)
 
-    def _make_layer(self, block, planes, blocks, groups, reduction, stride=1,
+        self.cnn_ = nn.Sequential(OrderedDict({
+                ('conv_', nn.Conv2d(2048, 256, 1, stride=1, bias=False)),
+                ('bn_', nn.BatchNorm2d(256)),
+                ('relu_', nn.ReLU(inplace=True)),
+        }))
+    def _make_layer(self, block, planes, blocks, groups, reduction, stride=2,
                     downsample_kernel_size=1, downsample_padding=0):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
@@ -381,6 +387,7 @@ class SENet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
+        x = self.cnn_(x)
         return x
 
     def logits(self, x):
